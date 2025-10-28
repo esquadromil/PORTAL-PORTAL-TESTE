@@ -37,9 +37,14 @@ header {
   position: fixed; top:0; width:100%; padding:12px 0;
   text-align:center; background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(4px); z-index:5;
+  display:flex; justify-content:space-between; align-items:center; gap:16px;
 }
-header img { height:60px; transition: transform 0.3s; }
+header img { height:60px; transition: transform 0.3s; margin-left:18px; }
 header img:hover { transform: scale(1.05); }
+.header-right { margin-right:18px; display:flex; align-items:center; gap:12px; }
+#logoutBtn { display:none; background: transparent; border:2px solid var(--azul); color:var(--azul); padding:6px 12px; border-radius:8px; cursor:pointer; }
+#userLabel { display:none; font-weight:bold; color:var(--azul); }
+
 #menu {
   height:100vh; display:flex; flex-direction:column;
   justify-content:center; align-items:center; gap:30px;
@@ -88,6 +93,22 @@ button:hover { background-color:#ff5555; box-shadow:0 0 18px var(--glow-vermelho
   margin-top:20px; font-weight:bold; transition:opacity 1s ease; color:#00ff88;
 }
 .hidden { display:none; }
+
+/* LOGIN OVERLAY */
+#loginOverlay {
+  position: fixed; inset:0; background: rgba(0,0,0,0.6); display:flex;
+  justify-content:center; align-items:center; z-index:50;
+}
+#loginCard {
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  padding:28px; border-radius:14px; width:380px; box-shadow:0 10px 40px rgba(0,0,0,0.6);
+  text-align:center; color:var(--branco);
+}
+#loginCard h2 { margin-bottom:12px; }
+#loginCard input { margin-top:8px; }
+
+#loginError { color:#ff9999; margin-top:8px; min-height:20px; }
+
 </style>
 </head>
 <body>
@@ -98,6 +119,10 @@ button:hover { background-color:#ff5555; box-shadow:0 0 18px var(--glow-vermelho
 
 <header>
   <img src="logocolorida.png" alt="Logo Esquadromil">
+  <div class="header-right">
+    <div id="userLabel"></div>
+    <button id="logoutBtn">Logout</button>
+  </div>
 </header>
 
 <div id="menu">
@@ -172,16 +197,127 @@ button:hover { background-color:#ff5555; box-shadow:0 0 18px var(--glow-vermelho
   <button class="voltar-btn" onclick="voltarMenu()">⬅ Voltar</button>
 </div>
 
+<!-- LOGIN OVERLAY -->
+<div id="loginOverlay" style="display:none;">
+  <div id="loginCard">
+    <h2>Portal Esquadromil — Acesso Restrito</h2>
+    <p>Faça login com seu e-mail corporativo</p>
+    <input id="loginEmail" type="email" placeholder="seu@empresa.com" />
+    <input id="loginPassword" type="password" placeholder="Senha" style="margin-top:10px;" />
+    <button id="loginBtn" style="width:100%; margin-top:12px;">Entrar</button>
+    <div id="loginError"></div>
+  </div>
+</div>
+
 <script>
-// === CONTROLE DE TELAS ===
+// === AUTENTICAÇÃO (ADICIONADO) ===
+const loginOverlay=document.getElementById('loginOverlay');
+const loginBtn=document.getElementById('loginBtn');
+const loginEmail=document.getElementById('loginEmail');
+const loginPassword=document.getElementById('loginPassword');
+const loginError=document.getElementById('loginError');
+const logoutBtn=document.getElementById('logoutBtn');
+const userLabel=document.getElementById('userLabel');
+
+function showLogin(msg){
+  loginOverlay.style.display='flex';
+  menu.style.display='none';
+  formChamado.style.display='none';
+  formGuarita.style.display='none';
+  if(msg) loginError.textContent = msg;
+}
+function hideLogin(){
+  loginOverlay.style.display='none';
+  loginError.textContent = '';
+}
+
+function setUserUI(email){
+  userLabel.textContent = email;
+  userLabel.style.display='block';
+  logoutBtn.style.display='inline-block';
+}
+
+// Verifica token localmente via /api/verify (opcional)
+async function checkAuth(){
+  const token = localStorage.getItem('portal_token');
+  if(!token) { showLogin(); return false; }
+  try{
+    const r = await fetch('/api/verify', { headers: { 'Authorization': 'Bearer ' + token } });
+    if(r.ok){
+      const j = await r.json();
+      setUserUI(j.email);
+      hideLogin();
+      menu.style.display='flex';
+      return true;
+    }else{
+      localStorage.removeItem('portal_token');
+      showLogin();
+      return false;
+    }
+  }catch(err){
+    // falha de rede: mostrar login para segurança
+    localStorage.removeItem('portal_token');
+    showLogin('Erro de conexão. Tente novamente.');
+    return false;
+  }
+}
+
+loginBtn.addEventListener('click', async ()=>{
+  const email = loginEmail.value.trim();
+  const password = loginPassword.value;
+  loginError.textContent='';
+  if(!email || !password){ loginError.textContent='Preencha email e senha'; return; }
+
+  loginBtn.disabled = true;
+  loginBtn.textContent = 'Entrando...';
+
+  try{
+    const res = await fetch('/api/login', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email, password })
+    });
+    const j = await res.json();
+    if(j.ok && j.token){
+      localStorage.setItem('portal_token', j.token);
+      await checkAuth();
+    }else{
+      loginError.textContent = j.error || 'Não autorizado';
+    }
+  }catch(e){
+    loginError.textContent = 'Erro na conexão';
+  }finally{
+    loginBtn.disabled = false;
+    loginBtn.textContent = 'Entrar';
+  }
+});
+
+logoutBtn.addEventListener('click', ()=>{
+  localStorage.removeItem('portal_token');
+  userLabel.style.display='none';
+  logoutBtn.style.display='none';
+  showLogin();
+});
+
+// roda checagem inicial
+document.addEventListener('DOMContentLoaded', ()=>{ checkAuth(); });
+
+/* === CONTROLE DE TELAS (mantive o seu original) === */
 const menu=document.getElementById('menu');
 const formChamado=document.getElementById('formChamado');
 const formGuarita=document.getElementById('formGuarita');
-document.getElementById('btnChamado').addEventListener('click', ()=>{menu.style.display='none'; formChamado.style.display='block';});
-document.getElementById('btnGuarita').addEventListener('click', ()=>{menu.style.display='none'; formGuarita.style.display='block';});
+document.getElementById('btnChamado').addEventListener('click', async ()=>{
+  // garante que usuário ainda está autenticado antes de abrir
+  const ok = await checkAuth();
+  if(ok){ menu.style.display='none'; formChamado.style.display='block'; }
+});
+document.getElementById('btnGuarita').addEventListener('click', async ()=>{
+  const ok = await checkAuth();
+  if(ok){ menu.style.display='none'; formGuarita.style.display='block'; }
+});
 function voltarMenu(){ formChamado.style.display='none'; formGuarita.style.display='none'; menu.style.display='flex'; }
 
-// === CHAMADO TI ===
+// === CHAMADO TI (mantive seus endpoints e lógica) ===
 const scriptChamado='https://script.google.com/macros/s/AKfycbw8bt5spo8b1Ve77XhYHC0N9jiMH6c-je-84C1zvsld1gHCcpUxAm-K9I1ySlW4huiJ/exec';
 const form=document.getElementById('form');
 const outroInput=document.getElementById('outro-problema');
@@ -207,6 +343,10 @@ problemaSelect.addEventListener('change',()=>{ outroInput.classList.toggle('hidd
 
 form.addEventListener('submit',async e=>{
   e.preventDefault();
+  // antes de enviar, checa autenticação
+  const ok = await checkAuth();
+  if(!ok){ alert('Sua sessão expirou. Faça login novamente.'); return; }
+
   const data=new FormData(form);
   const tempo=tempos[problemaSelect.value]||"15 minutos";
   mensagem.textContent="⏳ Enviando chamado...";
@@ -225,13 +365,16 @@ form.addEventListener('submit',async e=>{
   .finally(()=>{ form.reset(); outroInput.classList.add("hidden"); setTimeout(()=>mensagem.style.opacity=0,5000); });
 });
 
-// === GUARITA ===
+// === GUARITA (mantive igual) ===
 const scriptGuarita='https://script.google.com/macros/s/AKfycbwsLgZxTwI4jod2SlL6IU1xZmYYj5hWy0-X_1Wki9GeNGlW40x8Bv5bbADRkjOiqHaM/exec';
 const formG=document.getElementById('formGuaritaForm');
 const mensagemG=document.getElementById('mensagemGuarita');
 
-formG.addEventListener('submit',e=>{
+formG.addEventListener('submit',async e=>{
   e.preventDefault();
+  const ok = await checkAuth();
+  if(!ok){ alert('Sua sessão expirou. Faça login novamente.'); return; }
+
   const data=new FormData(formG);
   mensagemG.textContent="⏳ Enviando agendamento...";
   mensagemG.style.color="#ffd700";
@@ -254,5 +397,3 @@ formG.addEventListener('submit',e=>{
 </script>
 </body>
 </html>
-
-
